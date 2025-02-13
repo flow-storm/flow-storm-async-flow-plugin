@@ -8,28 +8,12 @@
             [clojure.string :as str]
             [clojure.set :as set]
             [flow-storm.plugins.async-flow.graph :as g])
-  (:import [com.brunomnsilva.smartgraph.graph DigraphEdgeList]
-           [javafx.scene.layout Priority VBox HBox]
-           [java.util.function Consumer]
-           [com.brunomnsilva.smartgraph.graphview
-            SmartLabelSource
-            SmartGraphPanel
-            ForceDirectedSpringGravityLayoutStrategy
-            SmartCircularSortedPlacementStrategy
-            SmartGraphProperties
-            SmartRandomPlacementStrategy]
-
-           [au.com.seasoft.ham GenericGraph InteropEdge InteropNode InteropHAM]
-           [com.syncleus.dann.graph Graph]
-
+  (:import [javafx.scene.layout Priority VBox HBox]
            [javafx.scene Node]
            [javafx.scene.control Label]
            [javafx.scene.layout Pane StackPane ]
            [javafx.scene.shape Path Circle Line]))
 
-
-#_(import '[javafx.application Platform])
-#_(Platform/startup (fn [] (println "JavaFX toolkit initialized")))
 (defn get-sub-form [timeline tl-entry]
   (let [fn-call-entry (get timeline (ia/fn-call-idx tl-entry))
         form-id (ip/get-form-id fn-call-entry)
@@ -47,17 +31,6 @@
            (= 'pid (get-sub-form (ia/get-timeline thread-id) tl-e)))
     (assoc threads-info thread-id (ia/get-expr-val tl-e))
     threads-info))
-
-#_(defn send-outputs-out-chan-write-expr [timeline entry]
-  (when (and (ia/expr-trace? entry)
-             (instance? clojure.core.async.impl.channels.ManyToManyChannel (ia/get-expr-val entry))
-             (= 'outc (get-sub-form timeline entry)))
-    (let [next-entry (get timeline (inc (ia/entry-idx entry)))]
-      (when (and (ia/expr-trace? next-entry)
-                 (= 'm (get-sub-form timeline next-entry)))
-        {:ch  (ia/get-expr-val entry)
-         :msg (ia/get-expr-val next-entry)
-         :idx (ia/entry-idx entry)}))))
 
 (defn- maybe-extract-message [messages tl-thread-id timeline tl-entry]
   ;; extract from impl/proc (transform state cid msg)
@@ -90,8 +63,6 @@
           messages))
       messages)))
 
-;; (ia/as-immutable (get (ia/get-timeline 0 68) 122))
-;; (ia/get-bind-sym-name (first (ia/get-fn-bindings (get (ia/get-timeline 0 68) 73))))
 (defn extract-flow [flow-id]
   (let [to-timeline (ia/total-order-timeline flow-id)]
     (reduce (fn [{:keys [threads->processes] :as data} tote]
@@ -176,147 +147,16 @@
             []
             conn-map)))
 
-#_(defn extract-out-conns [flow-id]
-  (let [;; find the conn-map
-        conn-map (if-let [entry (find-entry-by-sub-form-pred-all-threads
-                                 flow-id
-                                 (fn [sf]
-                                   (= 'conn-map sf)))]
-                   (ia/get-expr-val entry)
-                   (throw (ex-info "Can't find conn-map expression recording" {})))
-        ;; find the out-chans in create-flow start
-        out-chans (if-let [entry (find-entry-by-sub-form-pred-all-threads
-                                  flow-id
-                                  (fn [sf]
-                                    (and (seq? sf)
-                                         (let [[a b] sf]
-                                           (and (= a 'zipmap) (= b '(keys outopts)))))))]
-                    (ia/get-expr-val entry)
-                    (throw (ex-info "Can't find out-chans expression recording" {})))]
-
-    (reduce (fn [out-conns [cout cin-set :as conn]]
-              (reduce (fn [ocs cin]
-                        (conj ocs {:conn [cout cin]
-                                   :ch (out-chans cout)}))
-                      out-conns
-                      cin-set))
-            []
-            conn-map)))
-
-
-#_(def out-conns (extract-out-conns 0))
-#_(def nodes (graph-nodes out-conns))
-
-(defn graph-nodes [out-conns]
+(defn graph-nodes [conns]
   (reduce (fn [nodes {:keys [conn]}]
             (let [[[from _] [to _]] conn]
               (into nodes [from to])))
-   #{}
-   out-conns))
-
-(definterface EdgeI (getDisplay []))
-
-(deftype Edge [label]
-
-  EdgeI
-  (^{SmartLabelSource true}
-   getDisplay [_] label))
-
-
-#_(fs-plugins/register-plugin
- :async-flow
- {:label "Async Flow"
-  :on-create (fn [_]
-               (let [graph-box (ui/v-box :childs [])
-                     {:keys [list-view-pane clear add-all] :as lv-data}
-                     (ui/list-view :editable? false
-                                   :cell-factory (fn [list-cell msg]
-                                                   (-> list-cell
-                                                       (ui-utils/set-text (pr-str msg))
-                                                       #_(ui-utils/set-graphic (ui/label :text ns-name))))
-                                   :on-click (fn [mev sel-items {:keys [list-view-pane]}]
-                                               )
-                                   :selection-mode :single
-                                   :search-predicate (fn [msg-pprint search-str]
-                                                       (str/includes? msg-pprint search-str)))
-                     toolbar (ui/icon-button
-                              :icon-name "mdi-reload"
-                              :on-click (fn []
-                                          (try
-                                            (let [smart-graph (DigraphEdgeList.)
-                                                  out-conns (extract-out-conns 0)
-                                                  nodes (graph-nodes out-conns)
-                                                  #_{:keys [messages threads->processes]} #_ (extract-flow 0)]
-
-                                              (doseq [n nodes]
-                                                (.insertVertex smart-graph (pr-str n)))
-
-                                              (doseq [{:keys [conn ch]} out-conns]
-                                                (let [[[out-pid out-ch-id] [in-pid in-ch-id]] conn]
-                                                  (.insertEdge smart-graph (pr-str out-pid) (pr-str in-pid) (Edge. (format "%s -> %s" out-ch-id in-ch-id)))))
-
-                                              (let [smart-graph-panel (doto (SmartGraphPanel. smart-graph (SmartCircularSortedPlacementStrategy.) (ForceDirectedSpringGravityLayoutStrategy.))
-                                                                        (.setAutomaticLayout false))]
-                                                (.clear (.getChildren graph-box))
-                                                (.addAll (.getChildren graph-box) [smart-graph-panel])
-
-                                                (VBox/setVgrow smart-graph-panel Priority/ALWAYS)
-                                                (HBox/setHgrow smart-graph-panel Priority/ALWAYS)
-
-
-                                                (doseq [n nodes]
-                                                  (.setVertexDoubleClickAction smart-graph-panel
-                                                                               (fn [nn]
-                                                                                 (println "@@@@" nn))))
-
-                                                (doseq [{:keys [conn ch]} out-conns]
-                                                  (let [[[out-pid out-ch-id] [in-pid in-ch-id]] conn]
-                                                    (prn "Set for " conn)
-                                                    (.setEdgeDoubleClickAction smart-graph-panel
-                                                                               (reify Consumer
-                                                                                 (accept [_ x]
-                                                                                   (println "HELLO" x))))))))
-                                            (catch Exception e (.printStackTrace e))))
-                              :tooltip "")]
-                 (VBox/setVgrow graph-box Priority/ALWAYS)
-                 (HBox/setHgrow graph-box Priority/ALWAYS)
-
-                 {:fx/node (ui/border-pane
-                            :top toolbar
-                            :center (ui/split :orientation :vertical
-                                              :childs [graph-box list-view-pane]
-                                              :sizes [0.5]))}))})
-
-#_(fs-plugins/register-plugin
- :async-flow
- {:label "Async Flow 2"
-  :on-create (fn [_]
-               {:fx/node (g/setup-ui)})})
-
-;; (def n1 (InteropNode. "1"))
-;; (def n2 (InteropNode. "2"))
-;; (def n3 (InteropNode. "3"))
-
-;; (def g (GenericGraph/create))
-
-;; (.addNode g n1)
-;; (.addNode g n2)
-;; (.addNode g n3)
-;; (.addEdge g (InteropEdge. n1 n2))
-;; (.addEdge g (InteropEdge. n1 n3))
-
-;; (def ham (InteropHAM/create g 2))
-;; (def alignedHam (InteropHAM/attemptToAlign ham 1000 false))
-
-;; (def g-coords
-;;   (-> (.getCoordinates alignedHam)
-;;       (update-keys (fn [n] (.getId n)))
-;;       (update-vals (fn [v] {:x (+ 250 (* 100 (.getCoordinate v 1))) :y (+ 250 (* 100 (.getCoordinate v 2)))}))))
-
+          #{}
+          conns))
 
 (fs-plugins/register-plugin
  :async-flow
- {:label "Async Flow 3"
+ {:label "Async Flow"
   :on-create (fn [_]
                (try
                  (let [graph-box (ui/v-box :childs [])
@@ -435,9 +275,5 @@
 
 (comment
 
-  (def edges-set (extract-graph 0))
-  (def nodes (reduce (fn [nodes {:keys [out-pid in-pid]}]
-                       (into nodes [out-pid in-pid]))
-              #{}
-              edges-set))
+
   )
