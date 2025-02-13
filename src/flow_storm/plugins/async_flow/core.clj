@@ -7,12 +7,6 @@
             [flow-storm.debugger.ui.flows.screen :refer [goto-location]]
             [clojure.string :as str])
   (:import [javafx.scene.layout Priority VBox HBox]
-           [javafx.scene Node]
-           [javafx.scene.control Label]
-           [javafx.scene.layout Pane StackPane ]
-           [javafx.scene.shape Path Circle Line]
-           [au.com.seasoft.ham GenericGraph InteropEdge InteropNode InteropHAM]
-
            [com.brunomnsilva.smartgraph.graph DigraphEdgeList]
            [javafx.scene.layout Priority VBox HBox]
            [java.util.function Consumer]
@@ -20,9 +14,7 @@
             SmartLabelSource
             SmartGraphPanel
             ForceDirectedSpringGravityLayoutStrategy
-            SmartCircularSortedPlacementStrategy
-            SmartGraphProperties
-            SmartRandomPlacementStrategy]))
+            SmartCircularSortedPlacementStrategy]))
 
 (defn get-sub-form [timeline tl-entry]
   (let [fn-call-entry (get timeline (ia/fn-call-idx tl-entry))
@@ -178,81 +170,12 @@
                                     (str/includes? msg-pprint search-str))))
 
 
-(defn- build-toolbar [flow-id {:keys [on-refresh]}]
+(defn- build-toolbar [{:keys [on-refresh]}]
   (let [refresh-btn (ui/icon-button
                      :icon-name "mdi-reload"
                      :on-click on-refresh
                      :tooltip "")]
     (ui/h-box :childs [refresh-btn])))
-
-(defn create-graph-pane [{:keys [on-edge-click]} in-conns]
-  (let [graph (GenericGraph/create)
-        nodes (graph-nodes in-conns)
-        inter-nodes (reduce (fn [m pid]
-                              (assoc m pid (InteropNode. (name pid))))
-                            {}
-                            nodes)]
-    (doseq [pid nodes]
-      (.addNode graph (inter-nodes pid)))
-
-    (doseq [{:keys [conn]} in-conns]
-      (let [[[out-pid out-ch-id] [in-pid in-ch-id]] conn]
-        (.addEdge graph (InteropEdge. (inter-nodes out-pid) (inter-nodes in-pid)))))
-
-    (let [ham (InteropHAM/create graph 2)
-          aligned-ham (InteropHAM/attemptToAlign ham 1000 false)
-          {:keys [g-coords max-x max-y min-x min-y]} (reduce-kv (fn [acc n v]
-                                                                  (let [nx (.getCoordinate v 1)
-                                                                        ny (.getCoordinate v 2)]
-                                                                    (-> acc
-                                                                        (update :g-coords (fn [gc] (assoc gc (keyword (.getId n)) {:x nx :y ny})))
-                                                                        (update :max-x max nx)
-                                                                        (update :max-y max ny)
-                                                                        (update :min-x min nx)
-                                                                        (update :min-y min ny))))
-                                                                {:g-coords {}
-                                                                 :max-x Long/MIN_VALUE
-                                                                 :max-y Long/MIN_VALUE
-                                                                 :min-x Long/MAX_VALUE
-                                                                 :min-y Long/MAX_VALUE}
-                                                                (.getCoordinates aligned-ham))
-
-          g-width (- max-x min-x)
-          g-height (- max-y min-y)
-          scale (/ 800 (max g-width g-height))
-          min-x (* min-x scale)
-          min-y (* min-y scale)
-          x-trans (+ 20 (if (neg? min-x) (* -1 min-x) 0))
-          y-trans (+ 20 (if (neg? min-y) (* -1 min-y) 0))
-          g-coords (update-vals g-coords (fn [c]
-                                           (-> c
-                                               (update :x (fn [x] (+ x-trans (* x scale))))
-                                               (update :y (fn [y] (+ y-trans (* y scale)))))))
-          graph-pane (Pane.)
-          fx-verts (mapv (fn [[nid {:keys [x y]}]]
-                           (let [circle (Circle. 0 0 10)
-                                 lbl (Label. (name nid))
-                                 v (doto (StackPane. (into-array Node [circle lbl]))
-                                     (.setLayoutX x)
-                                     (.setLayoutY y))]
-                             v))
-                         g-coords)
-          fx-edges (mapv (fn [{:keys [conn ch]}]
-                           (let [[[out-pid out-ch-id] [in-pid in-ch-id]] conn]
-                             (doto (Line. (get-in g-coords [out-pid :x]) (get-in g-coords [out-pid :y])
-                                          (get-in g-coords [in-pid  :x]) (get-in g-coords [in-pid  :y]))
-                               (.setStrokeWidth 5)
-                               (.setOnMouseClicked
-                                (ui-utils/event-handler [mev] (on-edge-click ch))))))
-                         in-conns)]
-
-      (.addAll (.getChildren graph-pane) fx-edges)
-      (.addAll (.getChildren graph-pane) fx-verts)
-
-      (VBox/setVgrow graph-pane Priority/ALWAYS)
-      (HBox/setHgrow graph-pane Priority/ALWAYS)
-
-      graph-pane)))
 
 (definterface EdgeI
   (getDisplay [])
@@ -266,7 +189,7 @@
 
   (getEdgeChan [_] ch))
 
-(defn create-graph-pane2 [{:keys [on-edge-click]} in-conns]
+(defn create-graph-pane [{:keys [on-edge-click]} in-conns]
   (let [smart-graph (DigraphEdgeList.)
         nodes (graph-nodes in-conns)]
 
@@ -311,18 +234,19 @@
             set-graph-pane (fn [graph-pane]
                              (.clear (.getChildren graph-box))
                              (.addAll (.getChildren graph-box) [graph-pane]))
-            toolbar (build-toolbar flow-id
-                                   {:on-refresh
+            toolbar (build-toolbar {:on-refresh
                                     (fn []
                                       (try
                                         (let [in-conns (extract-in-conns flow-id)
                                               {:keys [messages threads->processes]} (extract-flow flow-id)
                                               messages-by-chan (group-by :ch messages)
-                                              graph-pane (create-graph-pane2 {:on-edge-click (fn [ch] (set-messages (messages-by-chan ch)))}
+                                              graph-pane (create-graph-pane {:on-edge-click (fn [ch] (set-messages (messages-by-chan ch)))}
                                                                              in-conns)]
                                           (set-graph-pane graph-pane)
-                                          (future (Thread/sleep 1000) (.init graph-pane)) ;; fix thissssssssssssssssss
-                                          )
+                                          ;; This is supper hacky but graph-pane init needs to run
+                                          ;; after it has been render and the graph-pane has a size.
+                                          ;; For now waiting a little bit after adding it to the stage works
+                                          (future (Thread/sleep 500) (.init graph-pane)))
                                         (catch Exception e (.printStackTrace e))))})]
         (VBox/setVgrow graph-box Priority/ALWAYS)
         (HBox/setHgrow graph-box Priority/ALWAYS)
@@ -334,7 +258,7 @@
                                      :sizes [0.5]))})
       (catch Exception e
         (.printStackTrace e)
-        (Label. (.getMessage e)))))})
+        (ui/label :text (.getMessage e)))))})
 
 (comment
 
