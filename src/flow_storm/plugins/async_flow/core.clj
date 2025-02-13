@@ -6,13 +6,13 @@
             [flow-storm.debugger.ui.utils :as ui-utils]
             [flow-storm.debugger.ui.flows.screen :refer [goto-location]]
             [clojure.string :as str]
-            [clojure.set :as set]
-            [flow-storm.plugins.async-flow.graph :as g])
+            [clojure.set :as set])
   (:import [javafx.scene.layout Priority VBox HBox]
            [javafx.scene Node]
            [javafx.scene.control Label]
            [javafx.scene.layout Pane StackPane ]
-           [javafx.scene.shape Path Circle Line]))
+           [javafx.scene.shape Path Circle Line]
+           [au.com.seasoft.ham GenericGraph InteropEdge InteropNode InteropHAM]))
 
 (defn get-sub-form [timeline tl-entry]
   (let [fn-call-entry (get timeline (ia/fn-call-idx tl-entry))
@@ -41,9 +41,6 @@
         (if (and (ia/expr-trace? prev-prev-entry)
                  (ia/expr-trace? prev-entry)
                  (ia/expr-trace? tl-entry)
-                 (map?     (ia/get-expr-val prev-prev-entry))
-                 (keyword? (ia/get-expr-val prev-entry))
-                 (map?     (ia/get-expr-val tl-entry))
                  (= 'state (get-sub-form timeline prev-prev-entry))
                  (= 'cid   (get-sub-form timeline prev-entry))
                  (= 'msg   (get-sub-form timeline tl-entry)))
@@ -169,7 +166,6 @@
                                                          #_(ui-utils/set-graphic (ui/label :text ns-name))))
                                      :on-click (fn [mev sel-items {:keys [list-view-pane]}]
                                                  (let [{:keys [idx thread-id]} (first sel-items)]
-                                                   (println (format "@@ jump to flow-id: %s, thread-id: %s, idx: %s" flow-id thread-id idx))
                                                    (goto-location {:flow-id flow-id
                                                                    :thread-id thread-id
                                                                    :idx idx})))
@@ -201,24 +197,24 @@
                                                 (let [ham (InteropHAM/create graph 2)
                                                       aligned-ham (InteropHAM/attemptToAlign ham 1000 false)
                                                       {:keys [g-coords max-x max-y min-x min-y] :as res} (reduce-kv (fn [acc n v]
-                                                                                                              (let [nx (.getCoordinate v 1)
-                                                                                                                    ny (.getCoordinate v 2)]
-                                                                                                                (-> acc
-                                                                                                                    (update :g-coords (fn [gc] (assoc gc (keyword (.getId n)) {:x nx :y ny})))
-                                                                                                                    (update :max-x max nx)
-                                                                                                                    (update :max-y max ny)
-                                                                                                                    (update :min-x min nx)
-                                                                                                                    (update :min-y min ny))))
-                                                                                                            {:g-coords {}
-                                                                                                             :max-x Long/MIN_VALUE
-                                                                                                             :max-y Long/MIN_VALUE
-                                                                                                             :min-x Long/MAX_VALUE
-                                                                                                             :min-y Long/MAX_VALUE}
-                                                                                                            (.getCoordinates aligned-ham))
+                                                                                                                      (let [nx (.getCoordinate v 1)
+                                                                                                                            ny (.getCoordinate v 2)]
+                                                                                                                        (-> acc
+                                                                                                                            (update :g-coords (fn [gc] (assoc gc (keyword (.getId n)) {:x nx :y ny})))
+                                                                                                                            (update :max-x max nx)
+                                                                                                                            (update :max-y max ny)
+                                                                                                                            (update :min-x min nx)
+                                                                                                                            (update :min-y min ny))))
+                                                                                                                    {:g-coords {}
+                                                                                                                     :max-x Long/MIN_VALUE
+                                                                                                                     :max-y Long/MIN_VALUE
+                                                                                                                     :min-x Long/MAX_VALUE
+                                                                                                                     :min-y Long/MAX_VALUE}
+                                                                                                                    (.getCoordinates aligned-ham))
 
                                                       g-width (- max-x min-x)
                                                       g-height (- max-y min-y)
-                                                      scale (/ 1000 (max g-width g-height))
+                                                      scale (/ 800 (max g-width g-height))
                                                       max-x (* max-x scale)
                                                       max-y (* max-y scale)
                                                       min-x (* min-x scale)
