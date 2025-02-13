@@ -1,0 +1,4 @@
+{:deps {com.brunomnsilva/smartgraph {:mvn/version "2.0.0"}
+        org.graphstream/gs-core {:mvn/version "2.0"}
+        org.graphstream/gs-ui-javafx {:mvn/version "2.0"}
+        cjmurphy/ham {:mvn/version "0.9.3"}}}
