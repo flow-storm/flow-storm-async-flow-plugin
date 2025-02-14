@@ -88,10 +88,6 @@
             {}
             to-timeline)))
 
-(comment
-  (extract-flow 0)
-  )
-
 (defn find-entry-by-sub-form-pred [timeline pred]
   (some (fn [tl-entry]
           (let [sub-form (get-sub-form timeline tl-entry)]
@@ -117,15 +113,6 @@
      (and (seq? sf)
           (let [[a b] sf]
             (and (= a 'zipmap) (= b '(keys outopts))))))))
-
-;; TODO:
-;; - Extract in connections instead of out
-;; - Extract messages from impl/proc (transform state cid *msg*) grabbing the message and taking the *c* binding as the ch
-;; - We can check back once for each msg form that prevs are cid, state, transform
-;; - The next index will contain the processing/transform on user's code
-(comment
-  (ia/as-immutable (get (ia/get-timeline 0 96) 879))
-  )
 
 (defn extract-in-conns [flow-id]
   (let [;; find the conn-map
@@ -182,19 +169,20 @@
                                     (str/includes? msg-pprint search-str))))
 
 
-(defn- build-toolbar [graph-flow-cmb messages-flow-cmb {:keys [on-graph-reload on-messages-reload]}]
+(defn- build-toolbar [graph-flow-cmb messages-flow-cmb {:keys [on-graph-reload-click on-messages-reload-click]}]
   (let [reload-graph-btn (ui/icon-button
                           :icon-name "mdi-reload"
-                          :on-click on-graph-reload
+                          :on-click on-graph-reload-click
                           :tooltip "Reload the graph structure from the selected FlowStorm flow-id recordings")
 
+        loaded-msgs-lbl (ui/label :text "")
         reload-messages-btn (ui/icon-button
-                          :icon-name "mdi-reload"
-                          :on-click on-messages-reload
-                          :tooltip "Reload graph messages from the selected FlowStorm flow-id recordings")]
+                             :icon-name "mdi-reload"
+                             :on-click (fn [] (on-messages-reload-click loaded-msgs-lbl))
+                             :tooltip "Reload graph messages from the selected FlowStorm flow-id recordings")]
     (ui/v-box :childs [(ui/h-box :childs [(ui/label :text "Graph flow-id :") graph-flow-cmb reload-graph-btn]
                                  :spacing 5)
-                       (ui/h-box :childs [(ui/label :text "Messages flow-id :") messages-flow-cmb reload-messages-btn]
+                       (ui/h-box :childs [(ui/label :text "Messages flow-id :") messages-flow-cmb reload-messages-btn loaded-msgs-lbl]
                                  :spacing 5)]
               :spacing 5)))
 
@@ -253,7 +241,7 @@
   :dark-css-resource  "flow-storm-async-flow-plugin/dark.css"
   :light-css-resource "flow-storm-async-flow-plugin/light.css"
   :on-focus (fn [{:keys [graph-flow-cmb messages-flow-cmb]}]
-              (let [flow-ids (map first (runtime-api/all-flows-threads rt-api))]
+              (let [flow-ids (into #{} (map first (runtime-api/all-flows-threads rt-api)))]
                 (ui-utils/combo-box-set-items graph-flow-cmb flow-ids)
                 (ui-utils/combo-box-set-items messages-flow-cmb flow-ids)))
   :on-create
@@ -280,33 +268,34 @@
                              (.clear (.getChildren graph-box))
                              (.addAll (.getChildren graph-box) [graph-pane]))
             *messages-by-chan (atom nil)
-            toolbar (build-toolbar graph-flow-cmb
-                                   messages-flow-cmb
-                                   {:on-graph-reload (fn []
-                                                       (let [flow-id @*graph-flow-id
-                                                             in-conns (extract-in-conns flow-id)
-                                                             threads->processes (extract-threads->processes flow-id)
-                                                             graph-pane (create-graph-pane {:on-edge-click (fn [ch]
-                                                                                                             (when-let [mbc @*messages-by-chan]
-                                                                                                               (set-messages (mbc ch))))}
-                                                                                           in-conns)]
-                                                         (set-graph-pane graph-pane)
-                                                         ;; This is supper hacky but graph-pane init needs to run
-                                                         ;; after it has been render and the graph-pane has a size.
-                                                         ;; For now waiting a little bit after adding it to the stage works
-                                                         (future (Thread/sleep 500) (.init graph-pane))
+            toolbar-pane (build-toolbar graph-flow-cmb
+                                        messages-flow-cmb
+                                        {:on-graph-reload-click
+                                         (fn []
+                                           (let [flow-id @*graph-flow-id
+                                                 in-conns (extract-in-conns flow-id)
+                                                 threads->processes (extract-threads->processes flow-id)
+                                                 graph-pane (create-graph-pane {:on-edge-click (fn [ch]
+                                                                                                 (when-let [mbc @*messages-by-chan]
+                                                                                                   (set-messages (mbc ch))))}
+                                                                               in-conns)]
+                                             (set-graph-pane graph-pane)
+                                             ;; This is supper hacky but graph-pane init needs to run
+                                             ;; after it has been render and the graph-pane has a size.
+                                             ;; For now waiting a little bit after adding it to the stage works
+                                             (future (Thread/sleep 500) (.init graph-pane))
 
-                                                         ;; set thread-procs-table
-                                                         ((:clear threads-procs-table))
-                                                         ((:add-all threads-procs-table) (mapv (fn [[tid pid]] [(str pid) (str tid)] ) threads->processes))))
-                                    :on-messages-reload (fn []
-                                                          (try
-                                                            (let [messages (extract-messages @*messages-flow-id)
-                                                                  messages-by-chan (group-by :ch messages)]
-                                                              (reset! *messages-by-chan messages-by-chan)
-
-                                                              )
-                                                            (catch Exception e (.printStackTrace e))))})
+                                             ;; set thread-procs-table
+                                             ((:clear threads-procs-table))
+                                             ((:add-all threads-procs-table) (mapv (fn [[tid pid]] [(str pid) (str tid)] ) threads->processes))))
+                                         :on-messages-reload-click
+                                         (fn [loaded-msgs-lbl]
+                                           (try
+                                             (let [messages (extract-messages @*messages-flow-id)
+                                                   messages-by-chan (group-by :ch messages)]
+                                               (ui-utils/set-text loaded-msgs-lbl (str "Loaded messages: " (count messages)))
+                                               (reset! *messages-by-chan messages-by-chan))
+                                             (catch Exception e (.printStackTrace e))))})
             messages-pane (:list-view-pane messages-list)
             threads-procs-pane (:table-view-pane threads-procs-table)
             bottom-box (ui/split :orientation :horizontal
@@ -318,7 +307,7 @@
         (HBox/setHgrow threads-procs-pane Priority/ALWAYS)
 
         {:fx/node (ui/border-pane
-                   :top toolbar
+                   :top toolbar-pane
                    :center (ui/split :orientation :vertical
                                      :childs [graph-box
                                               bottom-box]
