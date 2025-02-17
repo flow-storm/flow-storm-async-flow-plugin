@@ -10,11 +10,13 @@
            [com.brunomnsilva.smartgraph.graph DigraphEdgeList]
            [javafx.scene.layout Priority VBox HBox]
            [java.util.function Consumer]
+           [au.com.seasoft.ham GenericGraph InteropEdge InteropNode InteropHAM]
            [com.brunomnsilva.smartgraph.graphview
             SmartLabelSource
             SmartGraphPanel
             ForceDirectedSpringGravityLayoutStrategy
-            SmartRandomPlacementStrategy]))
+            SmartPlacementStrategy]))
+
 
 
 (defn- maybe-extract-thread-pid [threads-info flow-id thread-id tl-e]
@@ -179,6 +181,62 @@
   (getDisplay [])
   (getEdgeChan []))
 
+(defn ham-placement-strategy []
+  (reify SmartPlacementStrategy
+    (place [_ target-pane-width target-pane-height smart-graph-panel]
+      (try
+        (let [graph (GenericGraph/create)
+              nodes (->> (.getSmartVertices smart-graph-panel)
+                         (mapv (fn [vertex]
+                                 (let [node-name (-> vertex .getUnderlyingVertex .element)]
+                                   [node-name (InteropNode. node-name)])))
+                         (into {}))
+              edges (->> (.getSmartEdges smart-graph-panel)
+                         (mapv (fn [edge]
+                                 (let [[n1 n2] (-> edge .getUnderlyingEdge .vertices)]
+                                   (InteropEdge. (nodes (.element n1)) (nodes (.element n2)))))))]
+
+          (doseq [n (vals nodes)]
+            (.addNode graph n))
+
+          (doseq [e edges]
+            (.addEdge graph e))
+
+          (let [ham (InteropHAM/create graph 2)
+                aligned-ham (InteropHAM/attemptToAlign ham 10000 false)
+                {:keys [g-coords max-x max-y min-x min-y]} (reduce-kv (fn [acc n v]
+                                                                        (let [nx (.getCoordinate v 1)
+                                                                              ny (.getCoordinate v 2)]
+                                                                          (-> acc
+                                                                              (update :g-coords (fn [gc] (assoc gc (.getId n) {:x nx :y ny})))
+                                                                              (update :max-x max nx)
+                                                                              (update :max-y max ny)
+                                                                              (update :min-x min nx)
+                                                                              (update :min-y min ny))))
+                                                                      {:g-coords {}
+                                                                       :max-x Long/MIN_VALUE
+                                                                       :max-y Long/MIN_VALUE
+                                                                       :min-x Long/MAX_VALUE
+                                                                       :min-y Long/MAX_VALUE}
+                                                                      (.getCoordinates aligned-ham))
+                g-width (- max-x min-x)
+                g-height (- max-y min-y)
+                scale (/ (min target-pane-width target-pane-height) (max g-width g-height))
+                min-x (* min-x scale)
+                min-y (* min-y scale)
+                x-trans (+ 20 (if (neg? min-x) (* -1 min-x) 0))
+                y-trans (+ 20 (if (neg? min-y) (* -1 min-y) 0))
+                g-coords (update-vals g-coords (fn [c]
+                                                 (-> c
+                                                     (update :x (fn [x] (+ x-trans (* x scale))))
+                                                     (update :y (fn [y] (+ y-trans (* y scale)))))))]
+
+            (doseq [vertex (.getSmartVertices smart-graph-panel)]
+              (let [node-name (-> vertex .getUnderlyingVertex .element)
+                    {:keys [x y]} (get g-coords node-name)]
+                (.setPosition vertex x y)))))
+        (catch Exception e (.printStackTrace e))))))
+
 (deftype Edge [label ch]
 
   EdgeI
@@ -200,11 +258,11 @@
                                                                          ch))))
 
     (let [smart-graph-panel (doto (SmartGraphPanel. smart-graph
-                                                    (SmartRandomPlacementStrategy.)
+                                                    (ham-placement-strategy)
                                                     (ForceDirectedSpringGravityLayoutStrategy.))
                               (.setAutomaticLayout false)
-                              (.setPrefHeight 1000)
-                              (.setPrefWidth 1000))]
+                              #_(.setPrefHeight 1000)
+                              #_(.setPrefWidth 1000))]
 
       (VBox/setVgrow smart-graph-panel Priority/ALWAYS)
       (HBox/setHgrow smart-graph-panel Priority/ALWAYS)
