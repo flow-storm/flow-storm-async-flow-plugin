@@ -1,6 +1,5 @@
 (ns flow-storm.plugins.async-flow.core
   (:require [flow-storm.runtime.indexes.api :as ia]
-            [flow-storm.runtime.indexes.protocols :as ip]
             [flow-storm.debugger.ui.plugins :as fs-plugins]
             [flow-storm.debugger.ui.components :as ui]
             [flow-storm.debugger.ui.utils :as ui-utils]
@@ -17,24 +16,14 @@
             ForceDirectedSpringGravityLayoutStrategy
             SmartRandomPlacementStrategy]))
 
-(defn get-sub-form [timeline tl-entry]
-  (let [fn-call-entry (get timeline (ia/fn-call-idx tl-entry))
-        form-id (ip/get-form-id fn-call-entry)
-        expr-coord (when (or (ia/expr-trace? tl-entry)
-                             (ia/fn-end-trace? tl-entry))
-                     (ia/get-coord-vec tl-entry))
-        form (:form/form (ia/get-form form-id))]
-    (if expr-coord
-      (ia/get-sub-form-at-coord form expr-coord)
-      form)))
 
 (defn- maybe-extract-thread-pid [threads-info flow-id thread-id tl-e]
   (if (and (not (contains? threads-info thread-id))
            (ia/expr-trace? tl-e)
-           (= 'pid (get-sub-form (ia/get-timeline flow-id thread-id) tl-e))
+           (= 'pid (ia/get-sub-form (ia/get-timeline flow-id thread-id) tl-e))
            (let [prev-expr (get (ia/get-timeline flow-id thread-id) (dec (ia/entry-idx tl-e)))]
              (and (ia/expr-trace? prev-expr)
-                  (= 'handle-command (get-sub-form (ia/get-timeline flow-id thread-id) prev-expr)))))
+                  (= 'handle-command (ia/get-sub-form (ia/get-timeline flow-id thread-id) prev-expr)))))
 
     (assoc threads-info thread-id (ia/get-expr-val tl-e))
 
@@ -49,9 +38,9 @@
         (if (and (ia/expr-trace? prev-prev-entry)
                  (ia/expr-trace? prev-entry)
                  (ia/expr-trace? tl-entry)
-                 (= 'state (get-sub-form timeline prev-prev-entry))
-                 (= 'cid   (get-sub-form timeline prev-entry))
-                 (= 'msg   (get-sub-form timeline tl-entry)))
+                 (= 'state (ia/get-sub-form timeline prev-prev-entry))
+                 (= 'cid   (ia/get-sub-form timeline prev-entry))
+                 (= 'msg   (ia/get-sub-form timeline tl-entry)))
 
           (let [msg (ia/get-expr-val tl-entry)
                 fn-call (get timeline (ia/fn-call-idx tl-entry))
@@ -90,7 +79,7 @@
 
 (defn find-entry-by-sub-form-pred [timeline pred]
   (some (fn [tl-entry]
-          (let [sub-form (get-sub-form timeline tl-entry)]
+          (let [sub-form (ia/get-sub-form timeline tl-entry)]
             (when (pred sub-form)
               tl-entry)))
         timeline))
