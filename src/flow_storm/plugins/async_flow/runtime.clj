@@ -16,31 +16,53 @@
 
     threads-info))
 
-(defn- message-keeper [flow-id tl-thread-id tl-entry]
+(defn- message-keeper [*msgs-out->thread-id flow-id tl-thread-id tl-entry]
   ;; extract from impl/proc (transform state cid msg)
   (let [timeline (ia/get-timeline flow-id tl-thread-id)
-        entry-idx (ia/entry-idx tl-entry)]
-    (when (> entry-idx 2)
-      (let [prev-entry      (get timeline (- entry-idx 1))
-            prev-prev-entry (get timeline (- entry-idx 2))]
-        (when (and (ia/expr-trace? prev-prev-entry)
-                   (ia/expr-trace? prev-entry)
-                   (ia/expr-trace? tl-entry)
-                   (= 'state (ia/get-sub-form timeline prev-prev-entry))
-                   (= 'cid   (ia/get-sub-form timeline prev-entry))
-                   (= 'msg   (ia/get-sub-form timeline tl-entry)))
+        entry-idx (ia/entry-idx tl-entry)
+        msg (when (> entry-idx 2)
+              (let [prev-entry      (get timeline (- entry-idx 1))
+                    prev-prev-entry (get timeline (- entry-idx 2))]
+                (when (and (ia/expr-trace? prev-prev-entry)
+                           (ia/expr-trace? prev-entry)
+                           (ia/expr-trace? tl-entry)
+                           (= 'state (ia/get-sub-form timeline prev-prev-entry))
+                           (= 'cid   (ia/get-sub-form timeline prev-entry))
+                           (= 'msg   (ia/get-sub-form timeline tl-entry)))
 
-          (let [msg (ia/get-expr-val tl-entry)
-                fn-call (get timeline (ia/fn-call-idx tl-entry))
-                bindings (ia/get-fn-bindings fn-call)
-                c-binding-val (some (fn [b]
-                                      (when (= "c" (ia/get-bind-sym-name b))
-                                        (ia/get-bind-val b)))
-                                    bindings)]
-            {:ch-hash (hash c-binding-val)
-             :msg (pr-str msg)
-             :idx (inc entry-idx) ;; point into user's code which should be the call to transform function
-             :thread-id tl-thread-id}))))))
+                  (let [msg-ref (ia/get-expr-val tl-entry)
+                        fn-call (get timeline (ia/fn-call-idx tl-entry))
+                        bindings (ia/get-fn-bindings fn-call)
+                        c-binding-val (some (fn [b]
+                                              (when (= "c" (ia/get-bind-sym-name b))
+                                                (ia/get-bind-val b)))
+                                            bindings)
+                        out-write-thread-id (@*msgs-out->thread-id msg-ref)
+                        in-ch c-binding-val]
+                    {:msg-coord {:in-ch-hash (hash in-ch)
+                                 :out-write-thread-id out-write-thread-id}
+                     :msg (pr-str msg-ref)
+                     :idx (inc entry-idx) ;; point into user's code which should be the call to transform function
+                     :thread-id tl-thread-id}))))]
+    (if msg
+      msg
+
+      ;; As we see messages being written to out-ch we keep a map of the messages references and the out-chans
+      ;; they went in.
+      ;; This is hacky and assumes each message get written into one out-chan. It works on fan-outs because
+      ;; they get copied by a mult, but the msg is put into the out-ch only by the [outc m] instruction.
+      (when (and (ia/expr-trace? tl-entry)
+                 (instance? clojure.core.async.impl.channels.ManyToManyChannel (ia/get-expr-val tl-entry))
+                 (= 'outc (ia/get-sub-form timeline tl-entry))
+                 (ia/expr-trace? (get timeline (inc entry-idx)))
+                 (= 'm (ia/get-sub-form timeline (get timeline (inc entry-idx)))))
+        ;; if we are here we assume we are in clojure.core.async.flow.impl/send-outpus [outc m] form
+        (let [outc (ia/get-expr-val tl-entry)
+              m (ia/get-expr-val (get timeline (inc entry-idx)))]
+          (swap! *msgs-out->thread-id assoc m tl-thread-id))
+
+        ;; return nil since this path doesn't find messages
+        nil))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Plugin Runtime API ;;
@@ -49,10 +71,11 @@
 ;; Use an interruptible task for messages collection because this can take long
 ;; Also with an async task we can report messages as we find them
 (defn extract-messages-task [flow-id]
-  (dbg-api/submit-async-interruptible-batched-timelines-keep-task
-   (ia/timelines-for {:flow-id flow-id})
-   (fn [thread-id tl-entry]
-     (message-keeper flow-id thread-id tl-entry))))
+  (let [*msgs-out->thread-id (atom {})]
+    (dbg-api/submit-async-interruptible-batched-timelines-keep-task
+     [(ia/total-order-timeline flow-id)]
+     (fn [thread-id tl-entry]
+       (message-keeper *msgs-out->thread-id flow-id thread-id tl-entry)))))
 
 (defn extract-threads->processes [flow-id]
   (let [to-timeline (ia/total-order-timeline flow-id)]
@@ -63,7 +86,7 @@
             {}
             to-timeline)))
 
-(defn extract-in-conns [flow-id]
+(defn extract-conns [flow-id]
   (let [;; find the conn-map
         conn-map (if-let [entry (ia/find-entry-by-sub-form-pred-all-threads
                                  flow-id
@@ -79,12 +102,20 @@
                                         (let [[a b] sf]
                                           (and (= a 'zipmap) (= b '(keys inopts)))))))]
                    (ia/get-expr-val entry)
-                   (throw (ex-info "Can't find in-chans expression recording" {})))]
+                   (throw (ex-info "Can't find in-chans expression recording" {})))
+        out-chans (if-let [entry (ia/find-entry-by-sub-form-pred-all-threads
+                                  flow-id
+                                  (fn [sf]
+                                    (and (seq? sf)
+                                         (let [[a b] sf]
+                                           (and (= a 'zipmap) (= b '(keys outopts)))))))]
+                    (ia/get-expr-val entry)
+                    (throw (ex-info "Can't find out-chans expression recording" {})))]
 
-    (reduce (fn [conns [cout cin-set]]
+    (reduce (fn [conns [[out-pid :as cout] cin-set]]
               (reduce (fn [ocs cin]
                         (conj ocs {:conn [cout cin]
-                                   :ch-hash (hash (in-chans cin))}))
+                                   :conn-coord [out-pid (hash (in-chans cin))]}))
                       conns
                       cin-set))
             []

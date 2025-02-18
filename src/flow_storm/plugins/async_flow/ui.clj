@@ -51,9 +51,6 @@
                                  :spacing 5)]
               :spacing 5)))
 
-(definterface EdgeI
-  (getDisplay [])
-  (getEdgeChanHash []))
 
 (defn- ham-placement-strategy []
   (reify SmartPlacementStrategy
@@ -111,13 +108,17 @@
                 (.setPosition vertex x y)))))
         (catch Exception e (.printStackTrace e))))))
 
-(deftype Edge [label ch-hash]
+(definterface EdgeI
+  (getDisplay [])
+  (getEdgeConnCoord []))
+
+(deftype Edge [label conn-coord]
 
   EdgeI
   (^{SmartLabelSource true}
    getDisplay [_] label)
 
-  (getEdgeChanHash [_] ch-hash))
+  (getEdgeConnCoord [_] conn-coord))
 
 (defn- graph-nodes
   "Given a conns vector, which takes the form of
@@ -130,17 +131,17 @@
           #{}
           conns))
 
-(defn- create-graph-pane [{:keys [on-edge-click]} in-conns]
+(defn- create-graph-pane [{:keys [on-edge-click]} conns]
   (let [smart-graph (DigraphEdgeList.)
-        nodes (graph-nodes in-conns)]
+        nodes (graph-nodes conns)]
 
     (doseq [n nodes]
       (.insertVertex smart-graph (pr-str n)))
 
-    (doseq [{:keys [conn ch-hash]} in-conns]
+    (doseq [{:keys [conn conn-coord]} conns]
       (let [[[out-pid out-ch-id] [in-pid in-ch-id]] conn]
         (.insertEdge smart-graph (pr-str out-pid) (pr-str in-pid) (Edge. (format "%s -> %s" out-ch-id in-ch-id)
-                                                                         ch-hash))))
+                                                                         conn-coord))))
 
     (let [smart-graph-panel (doto (SmartGraphPanel. smart-graph
                                                     (ham-placement-strategy)
@@ -153,7 +154,7 @@
       (.setEdgeDoubleClickAction smart-graph-panel
                                  (reify Consumer
                                    (accept [_ edge-line]
-                                     (on-edge-click (.getEdgeChanHash (.element (.getUnderlyingEdge edge-line)))))))
+                                     (on-edge-click (.getEdgeConnCoord (.element (.getUnderlyingEdge edge-line)))))))
       smart-graph-panel)))
 
 (defn- build-thread-procs-table []
@@ -188,17 +189,27 @@
                            (.clear (.getChildren graph-box))
                            (.addAll (.getChildren graph-box) [graph-pane]))
           *messages (atom [])
+          *threads->processes (atom nil)
           toolbar-pane (build-toolbar graph-flow-cmb
                                       messages-flow-cmb
                                       {:on-graph-reload-click
                                        (fn []
+                                         (reset! *messages [])
                                          (let [flow-id @*graph-flow-id
-                                               in-conns (runtime-api/call-by-name rt-api "flow-storm.plugins.async-flow.runtime/extract-in-conns" [flow-id])
+                                               conns (runtime-api/call-by-name rt-api "flow-storm.plugins.async-flow.runtime/extract-conns" [flow-id])
                                                threads->processes (runtime-api/call-by-name rt-api "flow-storm.plugins.async-flow.runtime/extract-threads->processes" [flow-id])
-                                               graph-pane (create-graph-pane {:on-edge-click (fn [ch-hash]
-                                                                                               (let [messages-by-chan (group-by :ch-hash @*messages)]
-                                                                                                 (set-messages (messages-by-chan ch-hash))))}
-                                                                             in-conns)]
+                                               graph-pane (create-graph-pane {:on-edge-click (fn [conn-coord]
+                                                                                               (let [messages @*messages
+                                                                                                     th->pid @*threads->processes
+                                                                                                     messages-by-chan (->> messages
+                                                                                                                           (mapv (fn [{:keys [msg-coord] :as m}]
+                                                                                                                                   (let [{:keys [in-ch-hash out-write-thread-id]} msg-coord]
+                                                                                                                                     (assoc m :conn-coord [(th->pid out-write-thread-id)
+                                                                                                                                                           in-ch-hash]))))
+                                                                                                                           (group-by :conn-coord))]
+                                                                                                 (set-messages (messages-by-chan conn-coord))))}
+                                                                             conns)]
+                                           (reset! *threads->processes threads->processes)
                                            (set-graph-pane graph-pane)
                                            ;; This is supper hacky but graph-pane init needs to run
                                            ;; after it has been render and the graph-pane has a size.
