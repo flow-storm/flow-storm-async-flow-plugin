@@ -50,15 +50,15 @@
       ;; As we see messages being written to out-ch we keep a map of the messages references and the out-chans
       ;; they went in.
       ;; This is hacky and assumes each message get written into one out-chan. It works on fan-outs because
-      ;; they get copied by a mult, but the msg is put into the out-ch only by the [outc m] instruction.
+      ;; they get copied by a mult, but the msg is put into the out-ch only by the [outc (first msgs)] instruction.
       (when (and (ia/expr-trace? tl-entry)
                  (instance? clojure.core.async.impl.channels.ManyToManyChannel (ia/get-expr-val tl-entry))
                  (= 'outc (ia/get-sub-form timeline tl-entry))
-                 (ia/expr-trace? (get timeline (inc entry-idx)))
-                 (= 'm (ia/get-sub-form timeline (get timeline (inc entry-idx)))))
-        ;; if we are here we assume we are in clojure.core.async.flow.impl/send-outpus [outc m] form
+                 (ia/expr-trace? (get timeline (+ entry-idx 2)))
+                 (= '(first msgs) (ia/get-sub-form timeline (get timeline (+ entry-idx 2)))))
+        ;; if we are here we assume we are in clojure.core.async.flow.impl/send-outpus [outc (first msgs)] form
         (let [outc (ia/get-expr-val tl-entry)
-              m (ia/get-expr-val (get timeline (inc entry-idx)))]
+              m (ia/get-expr-val (get timeline (+ entry-idx 2)))]
           (swap! *msgs-out->thread-id assoc m tl-thread-id))
 
         ;; return nil since this path doesn't find messages

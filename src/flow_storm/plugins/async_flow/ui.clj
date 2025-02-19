@@ -198,16 +198,17 @@
                                          (let [flow-id @*graph-flow-id
                                                conns (runtime-api/call-by-name rt-api "flow-storm.plugins.async-flow.runtime/extract-conns" [flow-id])
                                                threads->processes (runtime-api/call-by-name rt-api "flow-storm.plugins.async-flow.runtime/extract-threads->processes" [flow-id])
-                                               graph-pane (create-graph-pane {:on-edge-click (fn [conn-coord]
-                                                                                               (let [messages @*messages
-                                                                                                     th->pid @*threads->processes
-                                                                                                     messages-by-chan (->> messages
-                                                                                                                           (mapv (fn [{:keys [msg-coord] :as m}]
-                                                                                                                                   (let [{:keys [in-ch-hash out-write-thread-id]} msg-coord]
-                                                                                                                                     (assoc m :conn-coord [(th->pid out-write-thread-id)
-                                                                                                                                                           in-ch-hash]))))
-                                                                                                                           (group-by :conn-coord))]
-                                                                                                 (set-messages (messages-by-chan conn-coord))))}
+                                               graph-pane (create-graph-pane {:on-edge-click
+                                                                              (fn [conn-coord]
+                                                                                (let [messages @*messages
+                                                                                      th->pid @*threads->processes
+                                                                                      messages-by-chan (->> messages
+                                                                                                            (mapv (fn [{:keys [msg-coord] :as m}]
+                                                                                                                    (let [{:keys [in-ch-hash out-write-thread-id]} msg-coord]
+                                                                                                                      (assoc m :conn-coord [(th->pid out-write-thread-id)
+                                                                                                                                            in-ch-hash]))))
+                                                                                                            (group-by :conn-coord))]
+                                                                                  (set-messages (messages-by-chan conn-coord))))}
                                                                              conns)]
                                            (reset! *threads->processes threads->processes)
                                            (set-graph-pane graph-pane)
