@@ -196,8 +196,8 @@
                                        (fn []
                                          (reset! *messages [])
                                          (let [flow-id @*graph-flow-id
-                                               conns (runtime-api/call-by-name rt-api "flow-storm.plugins.async-flow.runtime/extract-conns" [flow-id])
-                                               threads->processes (runtime-api/call-by-name rt-api "flow-storm.plugins.async-flow.runtime/extract-threads->processes" [flow-id])
+                                               conns (runtime-api/call-by-fn-key rt-api :plugins.async-flow/extract-conns [flow-id])
+                                               threads->processes (runtime-api/call-by-fn-key rt-api :plugins.async-flow/extract-threads->processes [flow-id])
                                                graph-pane (create-graph-pane {:on-edge-click
                                                                               (fn [conn-coord]
                                                                                 (let [messages @*messages
@@ -222,8 +222,8 @@
                                            ((:add-all threads-procs-table) (mapv (fn [[tid pid]] [(str pid) (str tid)] ) threads->processes))))
                                        :on-messages-reload-click
                                        (fn [loaded-msgs-lbl]
-                                         (tasks/submit-task runtime-api/call-by-name
-                                                            ["flow-storm.plugins.async-flow.runtime/extract-messages-task"
+                                         (tasks/submit-task runtime-api/call-by-fn-key
+                                                            [:plugins.async-flow/extract-messages-task
                                                              [@*messages-flow-id]]
                                                             {:on-progress (fn [{:keys [batch]}]
                                                                             (swap! *messages (fn [msgs] (into msgs batch)))

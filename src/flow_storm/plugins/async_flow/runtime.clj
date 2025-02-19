@@ -57,8 +57,7 @@
                  (ia/expr-trace? (get timeline (+ entry-idx 2)))
                  (= '(first msgs) (ia/get-sub-form timeline (get timeline (+ entry-idx 2)))))
         ;; if we are here we assume we are in clojure.core.async.flow.impl/send-outpus [outc (first msgs)] form
-        (let [outc (ia/get-expr-val tl-entry)
-              m (ia/get-expr-val (get timeline (+ entry-idx 2)))]
+        (let [m (ia/get-expr-val (get timeline (+ entry-idx 2)))]
           (swap! *msgs-out->thread-id assoc m tl-thread-id))
 
         ;; return nil since this path doesn't find messages
@@ -102,15 +101,7 @@
                                         (let [[a b] sf]
                                           (and (= a 'zipmap) (= b '(keys inopts)))))))]
                    (ia/get-expr-val entry)
-                   (throw (ex-info "Can't find in-chans expression recording" {})))
-        out-chans (if-let [entry (ia/find-entry-by-sub-form-pred-all-threads
-                                  flow-id
-                                  (fn [sf]
-                                    (and (seq? sf)
-                                         (let [[a b] sf]
-                                           (and (= a 'zipmap) (= b '(keys outopts)))))))]
-                    (ia/get-expr-val entry)
-                    (throw (ex-info "Can't find out-chans expression recording" {})))]
+                   (throw (ex-info "Can't find in-chans expression recording" {})))]
 
     (reduce (fn [conns [[out-pid :as cout] cin-set]]
               (reduce (fn [ocs cin]
@@ -120,3 +111,7 @@
                       cin-set))
             []
             conn-map)))
+
+(dbg-api/register-api-function :plugins.async-flow/extract-conns extract-conns)
+(dbg-api/register-api-function :plugins.async-flow/extract-threads->processes extract-threads->processes)
+(dbg-api/register-api-function :plugins.async-flow/extract-messages-task extract-messages-task)
