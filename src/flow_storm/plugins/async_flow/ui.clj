@@ -5,6 +5,7 @@
             [flow-storm.debugger.ui.utils :as ui-utils]
             [flow-storm.debugger.ui.flows.screen :refer [goto-location]]
             [flow-storm.debugger.runtime-api :as runtime-api :refer [rt-api]]
+            [flow-storm.debugger.ui.data-windows.data-windows :as data-windows]
             [clojure.string :as str])
   (:import [javafx.scene.layout Priority VBox HBox]
            [com.brunomnsilva.smartgraph.graph DigraphEdgeList]
@@ -24,11 +25,23 @@
                                     (ui-utils/set-text (:msg msg-map))
                                     (ui-utils/set-graphic nil)))
                 :on-click (fn [mev sel-items _]
-                            (when (ui-utils/double-click? mev)
-                              (let [{:keys [flow-id idx thread-id]} (first sel-items)]
-                                (goto-location {:flow-id flow-id
-                                                :thread-id thread-id
-                                                :idx idx}))))
+                            (let [msg (first sel-items)]
+                              (cond
+
+                                (= 1 (.getClickCount mev))
+                                (let [{:keys [msg-val-ref]} msg]
+                                  (runtime-api/data-window-push-val-data rt-api
+                                                                         :plugins/core-async-flow
+                                                                         msg-val-ref
+                                                                         {:flow-storm.debugger.ui.data-windows.data-windows/dw-id :plugins/core-async-flow
+                                                                          :flow-storm.debugger.ui.data-windows.data-windows/stack-key "Message"
+                                                                          :root? true}))
+
+                                (= 2 (.getClickCount mev))
+                                (let [{:keys [flow-id idx thread-id]} msg]
+                                  (goto-location {:flow-id flow-id
+                                                  :thread-id thread-id
+                                                  :idx idx})))))
                 :selection-mode :single
                 :search-predicate (fn [msg-pprint search-str]
                                     (str/includes? msg-pprint search-str))))
@@ -222,6 +235,7 @@
                                            ((:add-all threads-procs-table) (mapv (fn [[tid pid]] [(str pid) (str tid)] ) threads->processes))))
                                        :on-messages-reload-click
                                        (fn [loaded-msgs-lbl]
+                                         (reset! *messages [])
                                          (tasks/submit-task runtime-api/call-by-fn-key
                                                             [:plugins.async-flow/extract-messages-task
                                                              [@*messages-flow-id]]
@@ -231,9 +245,10 @@
                                                                               (ui-utils/set-text loaded-msgs-lbl (str "Messages found :" (count @*messages)))))}))})
           messages-pane (:list-view-pane messages-list)
           threads-procs-pane (:table-view-pane threads-procs-table)
+          dw-pane (data-windows/data-window-pane {:data-window-id :plugins/core-async-flow})
           bottom-box (ui/split :orientation :horizontal
-                               :childs [messages-pane threads-procs-pane]
-                               :sizes [0.7])]
+                               :childs [messages-pane dw-pane threads-procs-pane]
+                               :sizes [0.5 0.3])]
       (VBox/setVgrow graph-box Priority/ALWAYS)
       (HBox/setHgrow graph-box Priority/ALWAYS)
       (HBox/setHgrow messages-pane Priority/ALWAYS)

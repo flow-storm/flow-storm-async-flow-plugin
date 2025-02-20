@@ -1,6 +1,7 @@
 (ns flow-storm.plugins.async-flow.runtime
   (:require [flow-storm.runtime.indexes.api :as ia]
-            [flow-storm.runtime.debuggers-api :as dbg-api]))
+            [flow-storm.runtime.debuggers-api :as dbg-api]
+            [flow-storm.runtime.values :as rt-values]))
 
 
 
@@ -42,6 +43,7 @@
                     {:msg-coord {:in-ch-hash (hash in-ch)
                                  :out-write-thread-id out-write-thread-id}
                      :msg (pr-str msg-ref)
+                     :msg-val-ref (rt-values/reference-value! msg-ref)
                      :idx (inc entry-idx) ;; point into user's code which should be the call to transform function
                      :thread-id tl-thread-id}))))]
     (if msg
