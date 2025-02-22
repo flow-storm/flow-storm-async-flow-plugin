@@ -7,6 +7,8 @@ The core.async.flow plugin allows you to visualize your core.async.flow graph re
 **Note: this plugin is still on alpha the same as core.async.flow!**
 **This plugin is currently tested against core.async d922995579ce50f0760cbfc781f1e4a6ea077ce1**
 
+**Requires FlowStorm >= 4.2.0-alpha2**
+
 # Installation
 
 Add [![Clojars Project](https://img.shields.io/clojars/v/com.github.flow-storm/flow-storm-async-flow-plugin.svg)](https://clojars.org/com.github.flow-storm/flow-storm-async-flow-plugin) 

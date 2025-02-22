@@ -1,4 +1,4 @@
-.vertex {
+.async-flow .vertex {
     -fx-stroke-width: 3;
     -fx-stroke: #9c0084;
     -fx-stroke-type: inside; /* you should keep this for vertex.radius to hold */
@@ -6,18 +6,18 @@
     -fx-cursor: pointer;
 }
 
-.vertex-label {
+.async-flow .vertex-label {
     -fx-font: bold 8pt "sans-serif";
     -fx-fill: #FFF;    
 }
 
-.edge {
+.async-flow .edge {
     -fx-stroke-width: 5;
     -fx-stroke: #65ce8a;
     -fx-cursor: hand;
 }
 
-.edge-label {
+.async-flow .edge-label {
     -fx-font: bold 8pt "sans-serif";
     -fx-fill: #FFF;
 }

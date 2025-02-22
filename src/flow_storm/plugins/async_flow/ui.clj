@@ -58,11 +58,12 @@
                              :icon-name "mdi-reload"
                              :on-click (fn [] (on-messages-reload-click loaded-msgs-lbl))
                              :tooltip "Reload graph messages from the selected FlowStorm flow-id recordings")]
-    (ui/v-box :childs [(ui/h-box :childs [(ui/label :text "Graph flow-id :") graph-flow-cmb reload-graph-btn]
-                                 :spacing 5)
-                       (ui/h-box :childs [(ui/label :text "Messages flow-id :") messages-flow-cmb reload-messages-btn loaded-msgs-lbl]
-                                 :spacing 5)]
-              :spacing 5)))
+    {:toolbar-pane (ui/v-box :childs [(ui/h-box :childs [(ui/label :text "Graph flow-id :") graph-flow-cmb reload-graph-btn]
+                                                :spacing 5)
+                                      (ui/h-box :childs [(ui/label :text "Messages flow-id :") messages-flow-cmb reload-messages-btn loaded-msgs-lbl]
+                                                :spacing 5)]
+                             :spacing 5)
+     :loaded-msgs-lbl loaded-msgs-lbl}))
 
 
 (defn- ham-placement-strategy []
@@ -105,7 +106,8 @@
                                                                       (.getCoordinates aligned-ham))
                 g-width (- max-x min-x)
                 g-height (- max-y min-y)
-                scale (/ (min target-pane-width target-pane-height) (max g-width g-height))
+                margin 50
+                scale (/ (- (min target-pane-width target-pane-height) margin) (max g-width g-height))
                 min-x (* min-x scale)
                 min-y (* min-y scale)
                 x-trans (+ 20 (if (neg? min-x) (* -1 min-x) 0))
@@ -187,11 +189,11 @@
           graph-flow-cmb (ui/combo-box :items []
                                        :cell-factory (fn [_ flow-id] (ui/label :text (str flow-id)))
                                        :button-factory (fn [_ flow-id] (ui/label :text (str flow-id)))
-                                       :on-change (fn [_ flow-id] (reset! *graph-flow-id flow-id)))
+                                       :on-change (fn [_ flow-id] (when flow-id (reset! *graph-flow-id flow-id))))
           messages-flow-cmb (ui/combo-box :items []
                                           :cell-factory (fn [_ flow-id] (ui/label :text (str flow-id)))
                                           :button-factory (fn [_ flow-id] (ui/label :text (str flow-id)))
-                                          :on-change (fn [_ flow-id] (reset! *messages-flow-id flow-id)))
+                                          :on-change (fn [_ flow-id] (when flow-id (reset! *messages-flow-id flow-id))))
 
           messages-list (build-messages-list-view)
           threads-procs-table (build-thread-procs-table)
@@ -203,78 +205,107 @@
                            (.addAll (.getChildren graph-box) [graph-pane]))
           *messages (atom [])
           *threads->processes (atom nil)
-          toolbar-pane (build-toolbar graph-flow-cmb
-                                      messages-flow-cmb
-                                      {:on-graph-reload-click
-                                       (fn []
-                                         (reset! *messages [])
-                                         (let [flow-id @*graph-flow-id
-                                               conns (runtime-api/call-by-fn-key rt-api :plugins.async-flow/extract-conns [flow-id])
-                                               threads->processes (runtime-api/call-by-fn-key rt-api :plugins.async-flow/extract-threads->processes [flow-id])
-                                               graph-pane (create-graph-pane {:on-edge-click
-                                                                              (fn [conn-coord]
-                                                                                (let [messages @*messages
-                                                                                      th->pid @*threads->processes
-                                                                                      messages-by-chan (->> messages
-                                                                                                            (mapv (fn [{:keys [msg-coord] :as m}]
-                                                                                                                    (let [{:keys [in-ch-hash out-write-thread-id]} msg-coord]
-                                                                                                                      (assoc m :conn-coord [(th->pid out-write-thread-id)
-                                                                                                                                            in-ch-hash]))))
-                                                                                                            (group-by :conn-coord))]
-                                                                                  (set-messages (messages-by-chan conn-coord))))}
-                                                                             conns)]
-                                           (reset! *threads->processes threads->processes)
-                                           (set-graph-pane graph-pane)
-                                           ;; This is supper hacky but graph-pane init needs to run
-                                           ;; after it has been render and the graph-pane has a size.
-                                           ;; For now waiting a little bit after adding it to the stage works
-                                           (future (Thread/sleep 500) (.init graph-pane))
 
-                                           ;; set thread-procs-table
-                                           ((:clear threads-procs-table))
-                                           ((:add-all threads-procs-table) (mapv (fn [[tid pid]] [(str pid) (str tid)] ) threads->processes))))
-                                       :on-messages-reload-click
-                                       (fn [loaded-msgs-lbl]
-                                         (reset! *messages [])
-                                         (tasks/submit-task runtime-api/call-by-fn-key
-                                                            [:plugins.async-flow/extract-messages-task
-                                                             [@*messages-flow-id]]
-                                                            {:on-progress (fn [{:keys [batch]}]
-                                                                            (swap! *messages (fn [msgs] (into msgs batch)))
-                                                                            (ui-utils/run-later
-                                                                              (ui-utils/set-text loaded-msgs-lbl (str "Messages found :" (count @*messages)))))}))})
+          {:keys [toolbar-pane loaded-msgs-lbl]}
+          (build-toolbar graph-flow-cmb
+                         messages-flow-cmb
+                         {:on-graph-reload-click
+                          (fn []
+                            (reset! *messages [])
+                            (let [flow-id @*graph-flow-id
+                                  conns (runtime-api/call-by-fn-key rt-api :plugins.async-flow/extract-conns [flow-id])
+                                  threads->processes (runtime-api/call-by-fn-key rt-api :plugins.async-flow/extract-threads->processes [flow-id])
+                                  graph-pane (create-graph-pane {:on-edge-click
+                                                                 (fn [conn-coord]
+                                                                   (let [messages @*messages
+                                                                         th->pid @*threads->processes
+                                                                         messages-by-chan (->> messages
+                                                                                               (mapv (fn [{:keys [msg-coord] :as m}]
+                                                                                                       (let [{:keys [in-ch-hash out-write-thread-id]} msg-coord]
+                                                                                                         (assoc m :conn-coord [(th->pid out-write-thread-id)
+                                                                                                                               in-ch-hash]))))
+                                                                                               (group-by :conn-coord))]
+                                                                     (set-messages (messages-by-chan conn-coord))))}
+                                                                conns)]
+                              (reset! *threads->processes threads->processes)
+                              (set-graph-pane graph-pane)
+                              ;; This is supper hacky but graph-pane init needs to run
+                              ;; after it has been render and the graph-pane has a size.
+                              ;; For now waiting a little bit after adding it to the stage works
+                              (future (Thread/sleep 500) (.init graph-pane))
+
+                              ;; set thread-procs-table
+                              ((:clear threads-procs-table))
+                              ((:add-all threads-procs-table) (mapv (fn [[tid pid]] [(str pid) (str tid)] ) threads->processes))))
+                          :on-messages-reload-click
+                          (fn [loaded-msgs-lbl]
+                            (reset! *messages [])
+                            (tasks/submit-task runtime-api/call-by-fn-key
+                                               [:plugins.async-flow/extract-messages-task
+                                                [@*messages-flow-id]]
+                                               {:on-progress (fn [{:keys [batch]}]
+                                                               (swap! *messages (fn [msgs] (into msgs batch)))
+                                                               (ui-utils/run-later
+                                                                 (ui-utils/set-text loaded-msgs-lbl (str "Messages found :" (count @*messages)))))}))})
+          flow-clear (fn [flow-id]
+                       (when (= flow-id @*graph-flow-id)
+                         (.clear (.getChildren graph-box))
+                         ((:clear threads-procs-table))
+                         (reset! *threads->processes nil))
+
+                       ;; if the graph or messages flow was cleared we clear everything
+                       ;; since messages are inaccesible without the graph
+                       (when (or (= flow-id @*graph-flow-id)
+                                 (= flow-id @*messages-flow-id))
+                         (reset! *messages [])
+                         ((:clear messages-list))
+                         (ui-utils/set-text loaded-msgs-lbl "")
+                         (runtime-api/data-window-push-val-data rt-api :plugins/core-async-flow nil {:root? true})))
+
           messages-pane (:list-view-pane messages-list)
           threads-procs-pane (:table-view-pane threads-procs-table)
           dw-pane (data-windows/data-window-pane {:data-window-id :plugins/core-async-flow})
           bottom-box (ui/split :orientation :horizontal
                                :childs [messages-pane dw-pane threads-procs-pane]
-                               :sizes [0.5 0.3])]
+                               :sizes [0.5 0.3])
+          main-pane (ui/border-pane
+                     :top toolbar-pane
+                     :center (ui/split :orientation :vertical
+                                       :childs [graph-box
+                                                bottom-box]
+                                       :sizes [0.5]))]
       (VBox/setVgrow graph-box Priority/ALWAYS)
       (HBox/setHgrow graph-box Priority/ALWAYS)
       (HBox/setHgrow messages-pane Priority/ALWAYS)
       (HBox/setHgrow threads-procs-pane Priority/ALWAYS)
 
-      {:fx/node (ui/border-pane
-                 :top toolbar-pane
-                 :center (ui/split :orientation :vertical
-                                   :childs [graph-box
-                                            bottom-box]
-                                   :sizes [0.5]))
+      {:fx/node main-pane
        :graph-flow-cmb graph-flow-cmb
-       :messages-flow-cmb messages-flow-cmb})
+       :messages-flow-cmb messages-flow-cmb
+       :selected-graph-flow-id-ref *graph-flow-id
+       :selected-messages-flow-id-ref *messages-flow-id
+       :flow-clear flow-clear})
     (catch Exception e
       (.printStackTrace e)
       (ui/label :text (.getMessage e)))))
 
-(defn- on-focus [{:keys [graph-flow-cmb messages-flow-cmb]}]
+
+(defn- on-focus [{:keys [graph-flow-cmb messages-flow-cmb selected-graph-flow-id-ref selected-messages-flow-id-ref]}]
   (let [flow-ids (into #{} (map first (runtime-api/all-flows-threads rt-api)))]
     (ui-utils/combo-box-set-items graph-flow-cmb flow-ids)
-    (ui-utils/combo-box-set-items messages-flow-cmb flow-ids)))
+    (ui-utils/combo-box-set-items messages-flow-cmb flow-ids)
+    (ui-utils/combo-box-set-selected graph-flow-cmb @selected-graph-flow-id-ref)
+    (ui-utils/combo-box-set-selected messages-flow-cmb @selected-messages-flow-id-ref)))
+
+(defn- on-flow-clear [flow-id {:keys [flow-clear]}]
+  (flow-clear flow-id))
 
 (fs-plugins/register-plugin
  :async-flow
  {:label "Async Flow"
+  :css-resource       "flow-storm-web-plugin/styles.css"
   :dark-css-resource  "flow-storm-async-flow-plugin/dark.css"
   :light-css-resource "flow-storm-async-flow-plugin/light.css"
   :on-focus on-focus
-  :on-create on-create})
+  :on-create on-create
+  :on-flow-clear on-flow-clear })
