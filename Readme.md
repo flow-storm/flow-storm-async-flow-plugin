@@ -7,17 +7,18 @@ The core.async.flow plugin allows you to visualize your core.async.flow graph re
 **Note: this plugin is still on alpha the same as core.async.flow!**
 **This plugin is currently tested against core.async d922995579ce50f0760cbfc781f1e4a6ea077ce1**
 
-**Requires FlowStorm >= 4.2.0-alpha2**
+**Requires FlowStorm >= 4.2.0-beta2**
 
-# Installation
+# Setup
 
 Add [![Clojars Project](https://img.shields.io/clojars/v/com.github.flow-storm/flow-storm-async-flow-plugin.svg)](https://clojars.org/com.github.flow-storm/flow-storm-async-flow-plugin) 
 to your dependencies.
 
-Then on some dev namespace :
+Then add to the flow storm plugin jvm option this plugin namespace, like :
+
 
 ```clojure
-(require 'flow-storm.plugins.async-flow.all)
+"-Dflowstorm.plugins.namespaces=flow-storm.plugins.async-flow.all"
 ```
 
 When you open the FlowStorm UI you should see a new tab like in the picture above.

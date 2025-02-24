@@ -303,7 +303,7 @@
 (fs-plugins/register-plugin
  :async-flow
  {:label "Async Flow"
-  :css-resource       "flow-storm-web-plugin/styles.css"
+  :css-resource       "flow-storm-async-flow-plugin/styles.css"
   :dark-css-resource  "flow-storm-async-flow-plugin/dark.css"
   :light-css-resource "flow-storm-async-flow-plugin/light.css"
   :on-focus on-focus
