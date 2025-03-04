@@ -182,60 +182,6 @@
             []
             conn-map)))
 
-(comment
-  (extract-conns 0)
-
-  [{:out-pid :nums-counter,
-  :out-ch-id :nums,
-  :in-pid :forwarder,
-  :in-ch-id :anything-in,
-  :in-ch-obj-hash 660618912,
-  :out-ch-obj-hash 1626884953}
- {:out-pid :nums-counter,
-  :out-ch-id :nums,
-  :in-pid :only-odds,
-  :in-ch-id :nums-in,
-  :in-ch-obj-hash 59112500,
-  :out-ch-obj-hash 1626884953}
- {:out-pid :nums-counter,
-  :out-ch-id :nums,
-  :in-pid :only-evens,
-  :in-ch-id :nums-in,
-  :in-ch-obj-hash 1980994723,
-  :out-ch-obj-hash 1626884953}
- {:out-pid :nums-counter,
-  :out-ch-id :firsts,
-  :in-pid :serializer,
-  :in-ch-id :logger,
-  :in-ch-obj-hash 318418974,
-  :out-ch-obj-hash 318418974}
- {:out-pid :forwarder,
-  :out-ch-id :anything-out,
-  :in-pid :serializer,
-  :in-ch-id :logger,
-  :in-ch-obj-hash 318418974,
-  :out-ch-obj-hash 318418974}
- {:out-pid :only-odds,
-  :out-ch-id :odds,
-  :in-pid :serializer,
-  :in-ch-id :things,
-  :in-ch-obj-hash 885590495,
-  :out-ch-obj-hash 885590495}
- {:out-pid :only-evens,
-  :out-ch-id :evens,
-  :in-pid :serializer,
-  :in-ch-id :things,
-  :in-ch-obj-hash 885590495,
-  :out-ch-obj-hash 885590495}
- {:out-pid :serializer,
-  :out-ch-id :strings,
-  :in-pid :printer,
-  :in-ch-id :strings,
-  :in-ch-obj-hash 411121454,
-  :out-ch-obj-hash 411121454}]
-
-  (extract-threads->processes 0)
-  )
 (dbg-api/register-api-function :plugins.async-flow/extract-conns extract-conns)
 (dbg-api/register-api-function :plugins.async-flow/extract-threads->processes extract-threads->processes)
 (dbg-api/register-api-function :plugins.async-flow/extract-messages-task extract-messages-task)
