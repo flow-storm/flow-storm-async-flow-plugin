@@ -136,13 +136,9 @@
   (getEdgeConnCoord [_] conn-coord))
 
 (defn- graph-nodes
-  "Given a conns vector, which takes the form of
-  [{:conn [[:from-pid :out-ch-id] [:to-pid :in-ch-id]]} ...]
-  returns a set of all pids found."
   [conns]
-  (reduce (fn [nodes {:keys [conn]}]
-            (let [[[from _] [to _]] conn]
-              (into nodes [from to])))
+  (reduce (fn [nodes {:keys [out-pid in-pid]}]
+            (into nodes [out-pid in-pid]))
           #{}
           conns))
 
@@ -153,8 +149,8 @@
     (doseq [n nodes]
       (.insertVertex smart-graph (pr-str n)))
 
-    (doseq [{:keys [conn conn-coord]} conns]
-      (let [[[out-pid out-ch-id] [in-pid in-ch-id]] conn]
+    (doseq [{:keys [out-pid out-ch-id in-pid in-ch-id]} conns]
+      (let [conn-coord [[out-pid out-ch-id] [in-pid in-ch-id]]]
         (.insertEdge smart-graph (pr-str out-pid) (pr-str in-pid) (Edge. (format "%s -> %s" out-ch-id in-ch-id)
                                                                          conn-coord))))
 
@@ -205,6 +201,7 @@
                            (.addAll (.getChildren graph-box) [graph-pane]))
           *messages (atom [])
           *threads->processes (atom nil)
+          *connections (atom nil)
 
           {:keys [toolbar-pane loaded-msgs-lbl]}
           (build-toolbar graph-flow-cmb
@@ -218,16 +215,12 @@
                                   graph-pane (create-graph-pane {:on-edge-click
                                                                  (fn [conn-coord]
                                                                    (let [messages @*messages
-                                                                         th->pid @*threads->processes
                                                                          messages-by-chan (->> messages
-                                                                                               (mapv (fn [{:keys [msg-coord] :as m}]
-                                                                                                       (let [{:keys [in-ch-hash out-write-thread-id]} msg-coord]
-                                                                                                         (assoc m :conn-coord [(th->pid out-write-thread-id)
-                                                                                                                               in-ch-hash]))))
-                                                                                               (group-by :conn-coord))]
+                                                                                               (group-by :msg-coord))]
                                                                      (set-messages (messages-by-chan conn-coord))))}
                                                                 conns)]
                               (reset! *threads->processes threads->processes)
+                              (reset! *connections conns)
                               (set-graph-pane graph-pane)
                               ;; This is supper hacky but graph-pane init needs to run
                               ;; after it has been render and the graph-pane has a size.
@@ -242,7 +235,7 @@
                             (reset! *messages [])
                             (tasks/submit-task runtime-api/call-by-fn-key
                                                [:plugins.async-flow/extract-messages-task
-                                                [@*messages-flow-id]]
+                                                [@*messages-flow-id @*connections @*threads->processes]]
                                                {:on-progress (fn [{:keys [batch]}]
                                                                (swap! *messages (fn [msgs] (into msgs batch)))
                                                                (ui-utils/run-later
