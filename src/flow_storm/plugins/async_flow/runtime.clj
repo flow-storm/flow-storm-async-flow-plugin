@@ -71,11 +71,6 @@
                      ;; since the graph is not representing graph external input channels
                      (when-not (nil? (:msg next-queue-msg))
 
-                       ;; Just sanity check.
-                       ;; Check that the messages we are getting in our in-chan is what we tracked when the
-                       ;; message got wrote in outs
-                       (assert (= (:msg next-queue-msg) msg-ref) "Something is wrong, we didn't got the messages we were supposed to get")
-
                        {:msg-coord (get-coord connections
                                               (:out-pid next-queue-msg)
                                               (:out-ch-hash next-queue-msg)

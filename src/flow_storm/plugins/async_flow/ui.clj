@@ -151,7 +151,7 @@
 
     (doseq [{:keys [out-pid out-ch-id in-pid in-ch-id]} conns]
       (let [conn-coord [[out-pid out-ch-id] [in-pid in-ch-id]]]
-        (.insertEdge smart-graph (pr-str out-pid) (pr-str in-pid) (Edge. (format "%s -> %s" out-ch-id in-ch-id)
+        (.insertEdge smart-graph (pr-str out-pid) (pr-str in-pid) (Edge. (format "%s -> [%s]" out-ch-id in-ch-id)
                                                                          conn-coord))))
 
     (let [smart-graph-panel (doto (SmartGraphPanel. smart-graph
