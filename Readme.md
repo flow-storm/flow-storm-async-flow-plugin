@@ -45,6 +45,9 @@ a counter with all the messages found on your recordings.
 After the messages are loaded you should be able to **double-click** on a channel in the graph representation to see
 the messages in the bottom panel.
 
+**Important: the messages showing on each edge are the messages as received in the input channels of the receiving process,
+not as they are leaving the sending process.**
+
 Double clicking on any of these messages should take you to the code stepper right before that
 message is going to be processed.
 
