@@ -8,13 +8,14 @@
 
 
 
-(defn- maybe-extract-thread-pid [threads-info flow-id thread-id tl-e]
+(defn- maybe-extract-thread-pid [threads-info flow-id thread-id tl-e idx]
   (if (and (not (contains? threads-info thread-id))
            (ia/expr-trace? tl-e)
-           (= 'pid (ia/get-sub-form (ia/get-timeline flow-id thread-id) tl-e))
-           (let [prev-expr (get (ia/get-timeline flow-id thread-id) (dec (ia/entry-idx tl-e)))]
+           (= 'pid (ia/get-sub-form (ia/get-timeline flow-id thread-id) idx))
+           (let [prev-idx (dec idx)
+                 prev-expr (get (ia/get-timeline flow-id thread-id) prev-idx)]
              (and (ia/expr-trace? prev-expr)
-                  (= 'handle-command (ia/get-sub-form (ia/get-timeline flow-id thread-id) prev-expr)))))
+                  (= 'handle-command (ia/get-sub-form (ia/get-timeline flow-id thread-id) prev-idx)))))
 
     (assoc threads-info thread-id (ia/get-expr-val tl-e))
 
@@ -38,20 +39,21 @@
             [[out-pid (:out-ch-id c)] [in-pid (:in-ch-id c)]]))
         connections))
 
-(defn- message-keeper [*in-ch-queues connections threads->processes flow-id tl-thread-id tl-entry]
+(defn- message-keeper [*in-ch-queues connections threads->processes flow-id tl-thread-id entry-idx tl-entry]
   ;; extract from impl/proc (transform state cid msg)
   (try
     (let [timeline (ia/get-timeline flow-id tl-thread-id)
-         entry-idx (ia/entry-idx tl-entry)
-         msg (when (> entry-idx 2)
-               (let [prev-entry      (get timeline (- entry-idx 1))
-                     prev-prev-entry (get timeline (- entry-idx 2))]
+          msg (when (> entry-idx 2)
+                (let [prev-entry-idx (- entry-idx 1)
+                      prev-entry      (get timeline prev-entry-idx)
+                      prev-prev-entry-idx (- entry-idx 2)
+                      prev-prev-entry (get timeline prev-prev-entry-idx)]
                  (when (and (ia/expr-trace? prev-prev-entry)
                             (ia/expr-trace? prev-entry)
                             (ia/expr-trace? tl-entry)
-                            (= 'state (ia/get-sub-form timeline prev-prev-entry))
-                            (= 'cid   (ia/get-sub-form timeline prev-entry))
-                            (= 'msg   (ia/get-sub-form timeline tl-entry)))
+                            (= 'state (ia/get-sub-form timeline prev-prev-entry-idx))
+                            (= 'cid   (ia/get-sub-form timeline prev-entry-idx))
+                            (= 'msg   (ia/get-sub-form timeline entry-idx)))
 
                    (let [msg-ref (ia/get-expr-val tl-entry)
                          fn-call (get timeline (ia/fn-call-idx tl-entry))
@@ -89,9 +91,9 @@
        ;; they get copied by a mult, but the msg is put into the out-ch only by the [outc (first msgs)] instruction.
        (when (and (ia/expr-trace? tl-entry)
                   (instance? ManyToManyChannel (ia/get-expr-val tl-entry))
-                  (= 'outc (ia/get-sub-form timeline tl-entry))
+                  (= 'outc (ia/get-sub-form timeline entry-idx))
                   (ia/expr-trace? (get timeline (+ entry-idx 2)))
-                  (= '(first msgs) (ia/get-sub-form timeline (get timeline (+ entry-idx 2)))))
+                  (= '(first msgs) (ia/get-sub-form timeline (+ entry-idx 2))))
          ;; if we are here we assume we are in clojure.core.async.flow.impl/send-outpus [outc (first msgs)] form
          (let [out-ch-obj (ia/get-expr-val (get timeline entry-idx))
                msg (ia/get-expr-val (get timeline (+ entry-idx 2)))
@@ -125,15 +127,16 @@
                                     connections))]
     (dbg-api/submit-async-interruptible-batched-timelines-keep-task
      [(ia/total-order-timeline flow-id)]
-     (fn [thread-id tl-entry]
-       (message-keeper *in-ch-queues connections threads->processes flow-id thread-id tl-entry)))))
+     (fn [thread-id tl-idx tl-entry]
+       (message-keeper *in-ch-queues connections threads->processes flow-id thread-id tl-idx tl-entry)))))
 
 (defn extract-threads->processes [flow-id]
   (let [to-timeline (ia/total-order-timeline flow-id)]
     (reduce (fn [t->p tote]
               (let [tl-entry (ia/tote-entry tote)
+                    tl-idx (ia/tote-timeline-idx tote)
                     tl-thread-id (ia/tote-thread-id tote)]
-                (maybe-extract-thread-pid t->p flow-id tl-thread-id tl-entry)))
+                (maybe-extract-thread-pid t->p flow-id tl-thread-id tl-entry tl-idx)))
             {}
             to-timeline)))
 
