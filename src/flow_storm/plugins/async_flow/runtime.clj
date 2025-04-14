@@ -39,6 +39,13 @@
             [[out-pid (:out-ch-id c)] [in-pid (:in-ch-id c)]]))
         connections))
 
+(defn- many-to-many-chan? [obj]
+  (or (instance? ManyToManyChannel obj)
+      ;; this is to also support parsing flowbook replayed flows
+      (and (map? obj)
+           (= "clojure.core.async.impl.channels.ManyToManyChannel"
+              (:flow-storm.plugins.flowbook.runtime/unserializable-obj-class-name obj)))))
+
 (defn- message-keeper [*in-ch-queues connections threads->processes flow-id tl-thread-id entry-idx tl-entry]
   ;; extract from impl/proc (transform state cid msg)
   (try
@@ -90,7 +97,7 @@
        ;; This is hacky and assumes each message get written into one out-chan. It works on fan-outs because
        ;; they get copied by a mult, but the msg is put into the out-ch only by the [outc (first msgs)] instruction.
        (when (and (ia/expr-trace? tl-entry)
-                  (instance? ManyToManyChannel (ia/get-expr-val tl-entry))
+                  (many-to-many-chan? (ia/get-expr-val tl-entry))
                   (= 'outc (ia/get-sub-form timeline entry-idx))
                   (ia/expr-trace? (get timeline (+ entry-idx 2)))
                   (= '(first msgs) (ia/get-sub-form timeline (+ entry-idx 2))))
