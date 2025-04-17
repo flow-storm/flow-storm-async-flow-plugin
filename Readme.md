@@ -11,20 +11,21 @@ The core.async.flow plugin allows you to visualize your core.async.flow graph re
 
 # Setup
 
-Add [![Clojars Project](https://img.shields.io/clojars/v/com.github.flow-storm/flow-storm-async-flow-plugin.svg)](https://clojars.org/com.github.flow-storm/flow-storm-async-flow-plugin) 
-to your dependencies.
+[![Clojars Project](https://img.shields.io/clojars/v/com.github.flow-storm/flow-storm-async-flow-plugin.svg)](https://clojars.org/com.github.flow-storm/flow-storm-async-flow-plugin)
 
-Then add to the flow storm plugin jvm option this plugin namespace, like :
-
+In your deps.edn (same can be done with lein profiles) create an alias like :
 
 ```clojure
-"-Dflowstorm.plugins.namespaces=flow-storm.plugins.async-flow.all"
+{...
+ :aliases
+ {...
+  :fs-async-flow-plugin {:extra-deps {com.github.flow-storm/flow-storm-async-flow-plugin {:mvn/version "1.0.0-beta5"}}
+                         :jvm-opts ["-Dclojure.storm.instrumentOnlyPrefixes.asyncFlowPlugin=clojure.core.async.flow"
+                                    "-Dflowstorm.plugins.namespaces.asyncFlowPlugin=flow-storm.plugins.async-flow.all"]}
+}}}
 ```
 
-When you open the FlowStorm UI you should see a new tab like in the picture above.
-
-The plugin needs the recordings of the internals of clojure.core.async.flow so your FlowStorm instrumentation should include 
-the `clojure.core.async.flow` prefix added to your code prefixes, like `"-Dclojure.storm.instrumentOnlyPrefixes=clojure.core.async.flow,flow-test"`
+Then, in your projects, just make sure you start your repl with the `:fs-async-flow-plugin` alias.
 
 # Usage
 
