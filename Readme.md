@@ -5,7 +5,7 @@
 The core.async.flow plugin allows you to visualize your core.async.flow graph recorded activity from a graph view.
 
 **Note: this plugin is still on alpha the same as core.async.flow!**
-**This plugin is currently tested against core.async 7cc715ac25b4a0f232a7fe1049f90f14ef10fd96**
+**This plugin is currently tested against core.async 1.9.808-alpha1**
 
 **Requires FlowStorm >= 4.3.0**
 
