@@ -2,24 +2,53 @@
   (:require [flow-storm.runtime.indexes.api :as ia]
             [flow-storm.runtime.debuggers-api :as dbg-api]
             [flow-storm.runtime.values :as rt-values]
+            [flow-storm.runtime.indexes.protocols :as index-protos]
             [clojure.core.async.impl.channels])
   (:import [clojure.core.async.impl.channels ManyToManyChannel]
            [clojure.lang PersistentQueue]))
 
+(def get-sub-form
+  (memoize (fn get-sub-form [timeline idx]
+             (ia/get-sub-form timeline idx))))
 
+;; Move these ones to FlowStorm
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- find-binding-val [timeline tl-entry bind-name]
+  (let [fn-call (get timeline (ia/fn-call-idx tl-entry))
+        bindings (ia/get-fn-bindings fn-call)
+        binding-val (some (fn [b]
+                            (when (= bind-name (ia/get-bind-sym-name b))
+                              (ia/get-bind-val b)))
+                          bindings)]
+    binding-val))
 
-(defn- maybe-extract-thread-pid [threads-info flow-id thread-id tl-e idx]
-  (if (and (not (contains? threads-info thread-id))
-           (ia/expr-trace? tl-e)
-           (= 'pid (ia/get-sub-form (ia/get-timeline flow-id thread-id) idx))
-           (let [prev-idx (dec idx)
-                 prev-expr (get (ia/get-timeline flow-id thread-id) prev-idx)]
-             (and (ia/expr-trace? prev-expr)
-                  (= 'handle-command (ia/get-sub-form (ia/get-timeline flow-id thread-id) prev-idx)))))
+(defn- find-entry-by-sub-form [timeline sub-form {:keys [from-idx dir]}]
+  (let [next-fn (case dir
+                  :forward inc
+                  :backwards dec)
+        tl-cnt (count timeline)]
+    (loop [i from-idx]
+      (when (< i tl-cnt)
+        (if (= sub-form (get-sub-form timeline i))
+          (get timeline i)
+          (recur (next-fn i)))))))
 
-    (assoc threads-info thread-id (ia/get-expr-val tl-e))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-    threads-info))
+(defn- maybe-extract-control-pid [controls->pid flow-id thread-id tl-e idx]
+  (let [timeline (ia/get-timeline flow-id thread-id)]
+    (if (and (ia/expr-trace? tl-e)
+             (= 'control-tap (get-sub-form timeline idx))
+             (let [prev-idx (dec idx)
+                   prev-expr (get timeline prev-idx)]
+               (and (ia/expr-trace? prev-expr)
+                    (= 'control-mult (get-sub-form timeline prev-idx)))))
+
+      (let [pid (find-binding-val timeline tl-e "pid")
+            ctrl-ch (ia/get-expr-val tl-e)]
+        (assoc controls->pid (hash ctrl-ch) pid))
+
+      controls->pid)))
 
 
 (defn- get-in-chans-hashes [connections out-pid out-ch-obj]
@@ -46,7 +75,7 @@
            (= "clojure.core.async.impl.channels.ManyToManyChannel"
               (:flow-storm.plugins.flowbook.runtime/unserializable-obj-class-name obj)))))
 
-(defn- message-keeper [*in-ch-queues connections threads->processes flow-id tl-thread-id entry-idx tl-entry]
+(defn- message-keeper [*in-ch-queues connections controls->pids flow-id tl-thread-id entry-idx tl-entry]
   ;; extract from impl/proc (transform state cid msg)
   (try
     (let [timeline (ia/get-timeline flow-id tl-thread-id)
@@ -58,20 +87,16 @@
                  (when (and (ia/expr-trace? prev-prev-entry)
                             (ia/expr-trace? prev-entry)
                             (ia/expr-trace? tl-entry)
-                            (= 'state (ia/get-sub-form timeline prev-prev-entry-idx))
-                            (= 'cid   (ia/get-sub-form timeline prev-entry-idx))
-                            (= 'msg   (ia/get-sub-form timeline entry-idx)))
+                            (= 'state (get-sub-form timeline prev-prev-entry-idx))
+                            (= 'cid   (get-sub-form timeline prev-entry-idx))
+                            (= 'msg   (get-sub-form timeline entry-idx)))
 
                    (let [msg-ref (ia/get-expr-val tl-entry)
-                         fn-call (get timeline (ia/fn-call-idx tl-entry))
-                         bindings (ia/get-fn-bindings fn-call)
-                         c-binding-val (some (fn [b]
-                                               (when (= "c" (ia/get-bind-sym-name b))
-                                                 (ia/get-bind-val b)))
-                                             bindings)
-                         in-ch c-binding-val
+                         in-ch (ia/get-expr-val (find-entry-by-sub-form timeline 'c {:from-idx entry-idx, :dir :backwards}))
+                         ctl-ch-entry (find-entry-by-sub-form timeline 'control {:from-idx entry-idx, :dir :backwards})
+                         ctrl-ch-hash (hash (ia/get-expr-val ctl-ch-entry))
                          in-ch-hash (hash in-ch)
-                         in-pid (threads->processes tl-thread-id)
+                         in-pid (controls->pids ctrl-ch-hash)
                          next-queue-msg (peek (get @*in-ch-queues in-ch-hash))]
                      (swap! *in-ch-queues update in-ch-hash pop)
 
@@ -98,13 +123,14 @@
        ;; they get copied by a mult, but the msg is put into the out-ch only by the [outc (first msgs)] instruction.
        (when (and (ia/expr-trace? tl-entry)
                   (many-to-many-chan? (ia/get-expr-val tl-entry))
-                  (= 'outc (ia/get-sub-form timeline entry-idx))
+                  (= 'outc (get-sub-form timeline entry-idx))
                   (ia/expr-trace? (get timeline (+ entry-idx 2)))
-                  (= '(first msgs) (ia/get-sub-form timeline (+ entry-idx 2))))
+                  (= '(first msgs) (get-sub-form timeline (+ entry-idx 2))))
          ;; if we are here we assume we are in clojure.core.async.flow.impl/send-outpus [outc (first msgs)] form
          (let [out-ch-obj (ia/get-expr-val (get timeline entry-idx))
                msg (ia/get-expr-val (get timeline (+ entry-idx 2)))
-               out-pid (threads->processes tl-thread-id)
+               ctrl-ch-hash (hash (find-binding-val timeline tl-entry "control"))
+               out-pid (controls->pids ctrl-ch-hash)
                in-chs (get-in-chans-hashes connections out-pid out-ch-obj)]
 
            (swap! *in-ch-queues (fn [queues]
@@ -126,7 +152,7 @@
 
 ;; Use an interruptible task for messages collection because this can take long
 ;; Also with an async task we can report messages as we find them
-(defn extract-messages-task [flow-id connections threads->processes]
+(defn extract-messages-task [flow-id connections control-ch->pid]
   ;; {in-ch-hash PERSISTENT_QUEUE} of {:msg, :out-ch-hash}
   (let [*in-ch-queues (atom (reduce (fn [acc {:keys [in-ch-obj-hash]}]
                                       (assoc acc in-ch-obj-hash PersistentQueue/EMPTY))
@@ -135,15 +161,29 @@
     (dbg-api/submit-async-interruptible-batched-timelines-keep-task
      [(ia/total-order-timeline flow-id)]
      (fn [thread-id tl-idx tl-entry]
-       (message-keeper *in-ch-queues connections threads->processes flow-id thread-id tl-idx tl-entry)))))
+       (message-keeper *in-ch-queues connections control-ch->pid flow-id thread-id tl-idx tl-entry)))))
 
-(defn extract-threads->processes [flow-id]
+(defn extract-messages-sync [flow-id connections control-ch->pid]
+  ;; {in-ch-hash PERSISTENT_QUEUE} of {:msg, :out-ch-hash}
+  (let [*in-ch-queues (atom (reduce (fn [acc {:keys [in-ch-obj-hash]}]
+                                      (assoc acc in-ch-obj-hash PersistentQueue/EMPTY))
+                                    {}
+                                    connections))]
+    (keep (fn [tote-entry]
+            (let [timeline (index-protos/tote-thread-timeline tote-entry)
+                  tl-idx (index-protos/tote-thread-timeline-idx tote-entry)
+                  thread-id (ia/timeline-thread-id timeline tl-idx)
+                  tl-entry (get timeline tl-idx)]
+              (message-keeper *in-ch-queues connections control-ch->pid flow-id thread-id tl-idx tl-entry)))
+     (ia/total-order-timeline flow-id))))
+
+(defn extract-controls->processes [flow-id]
   (let [to-timeline (ia/total-order-timeline flow-id)]
-    (reduce (fn [t->p tote]
+    (reduce (fn [c->p tote]
               (let [tl-entry (ia/tote-entry tote)
                     tl-idx (ia/tote-timeline-idx tote)
                     tl-thread-id (ia/tote-thread-id tote)]
-                (maybe-extract-thread-pid t->p flow-id tl-thread-id tl-entry tl-idx)))
+                (maybe-extract-control-pid c->p flow-id tl-thread-id tl-entry tl-idx)))
             {}
             to-timeline)))
 
@@ -174,19 +214,19 @@
                     (throw (ex-info "Can't find out-chans expression recording" {})))]
 
     ;; here [cout cin-set] is [[:nums-gen :out-ch] #{[:num-consumer-0 :in-ch] [:num-consumer-1 :in-ch]}]
-    (reduce (fn [conns [[out-pid out-ch-id :as cout] cin-set]]
-              (reduce (fn [ocs [in-pid in-ch-id :as cin]]
-                        (conj ocs {:out-pid out-pid
-                                   :out-ch-id out-ch-id
-                                   :in-pid in-pid
-                                   :in-ch-id in-ch-id
-                                   :in-ch-obj-hash  (hash (in-chans cin))
-                                   :out-ch-obj-hash (hash (out-chans cout))}))
-                      conns
-                      cin-set))
-            []
-            conn-map)))
+    {:conns (reduce (fn [conns [[out-pid out-ch-id :as cout] cin-set]]
+                      (reduce (fn [ocs [in-pid in-ch-id :as cin]]
+                                (conj ocs {:out-pid out-pid
+                                           :out-ch-id out-ch-id
+                                           :in-pid in-pid
+                                           :in-ch-id in-ch-id
+                                           :in-ch-obj-hash  (hash (in-chans cin))
+                                           :out-ch-obj-hash (hash (out-chans cout))}))
+                              conns
+                              cin-set))
+                    []
+                    conn-map)
+     :control-ch->pid (extract-controls->processes flow-id)}))
 
 (dbg-api/register-api-function :plugins.async-flow/extract-conns extract-conns)
-(dbg-api/register-api-function :plugins.async-flow/extract-threads->processes extract-threads->processes)
 (dbg-api/register-api-function :plugins.async-flow/extract-messages-task extract-messages-task)
