@@ -8,6 +8,18 @@
      
 ### Bugs fixed
 
+## 1.0.0-beta6 (07-08-2025)
+	
+### New Features
+            
+### Changes
+
+    - Removed the threads->process id panel since it was wrong
+     
+### Bugs fixed
+
+    - Fixed process identification system
+    
 ## 1.0.0-beta3 (05-03-2025)
 	
 ### New Features

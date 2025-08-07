@@ -19,7 +19,7 @@ In your deps.edn (same can be done with lein profiles) create an alias like :
 {...
  :aliases
  {...
-  :fs-async-flow-plugin {:extra-deps {com.github.flow-storm/flow-storm-async-flow-plugin {:mvn/version "1.0.0-beta5"}}
+  :fs-async-flow-plugin {:extra-deps {com.github.flow-storm/flow-storm-async-flow-plugin {:mvn/version "1.0.0-beta6"}} ;; check the latest
                          :jvm-opts ["-Dclojure.storm.instrumentOnlyPrefixes.asyncFlowPlugin=clojure.core.async.flow"
                                     "-Dflowstorm.plugins.namespaces.asyncFlowPlugin=flow-storm.plugins.async-flow.all"]}
 }}}
