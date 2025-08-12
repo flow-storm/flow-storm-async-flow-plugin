@@ -5,8 +5,12 @@
 ### New Features
             
 ### Changes
+
+    - Improve performance
      
 ### Bugs fixed
+
+    - Fix memoization issue
 
 ## 1.0.0-beta6 (07-08-2025)
 	
